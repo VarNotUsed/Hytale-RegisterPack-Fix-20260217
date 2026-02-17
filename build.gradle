@@ -1,0 +1,81 @@
+import groovy.json.JsonOutput
+
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+    maven { url "https://repo.spongepowered.org/maven/" }
+    maven { url "https://maven.fabricmc.net/" }
+    exclusiveContent {
+        forRepository { maven { url "https://cursemaven.com" } }
+        filter { includeGroup "curse.maven" }
+    }
+}
+
+ext {
+    hytaleHome = "${System.getProperty("user.home")}/AppData/Roaming/Hytale"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+}
+
+configurations {
+    hytaleServer
+    compileOnly.extendsFrom(hytaleServer)
+    hyxin
+}
+
+dependencies {
+    hytaleServer(files("$hytaleHome/install/$patchline/package/game/latest/Server/HytaleServer.jar"))
+    compileOnly("net.fabricmc:sponge-mixin:0.15.4+mixin.0.8.7")
+    hyxin("curse.maven:hyxin-1405491:7399430")
+}
+
+tasks.register('mixinJar', Jar) {
+    dependsOn tasks.named('compileJava'), tasks.named('processResources')
+    archiveBaseName.set('RegisterPack-Fix-20260217')
+    archiveVersion.set(version)
+
+    from(tasks.named('compileJava').get().destinationDirectory) {
+        include 'registerpackfix/**'
+    }
+    from("$buildDir/resources/main") {
+        include 'registerpackfix.mixins.json'
+    }
+
+    doFirst {
+        def manifest = [
+            Group  : 'Community',
+            Name   : 'RegisterPack-Fix-20260217',
+            Version: version,
+            Description: 'Re-adds the 3-arg AssetModule.registerPack overload removed in the 2026.02.17 server update.',
+            ServerVersion: '*',
+            DisabledByDefault: false,
+            Hyxin: [ Configs: ['registerpackfix.mixins.json'] ]
+        ]
+        def manifestFile = file("$buildDir/tmp/mixinJar/manifest.json")
+        manifestFile.parentFile.mkdirs()
+        manifestFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(manifest))
+    }
+    from("$buildDir/tmp/mixinJar") {
+        include 'manifest.json'
+    }
+}
+
+tasks.register('copyEarlyPlugins') {
+    dependsOn tasks.named('mixinJar')
+    doLast {
+        copy {
+            from configurations.hyxin
+            from tasks.named('mixinJar').get().archiveFile
+            into "$projectDir/run/earlyplugins"
+        }
+    }
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('mixinJar')
+}
